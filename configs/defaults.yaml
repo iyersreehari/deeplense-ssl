@@ -1,0 +1,60 @@
+#
+# DINO_standard_config.yaml
+# trains dino with vit_tiny architecture
+# rest training parameters and augmentations are standard
+#
+# experiment parameters
+experiment:
+  seed: 12
+  device: cuda 
+  expt_name: standard_dino # experiment name
+  log_freq: 5 # knn accuracy is computed every `log_freq` epochs, additionally the trained model is also saved
+  output_dir: ../working/standard_dino # output results to this folder - files: logs.txt, {experiment_name}_models
+  ssl_training: dino # training strategy to use
+  use_mixed_precision: true # if true uses fp16 for training, improves training speed
+# input image parameters
+input:
+  channels: 3 # num channels in input image
+  data path: ../input/real_lenses_dataset # path/to/dataset
+  image size: 
+  - 64 # image height to perform center crop
+  - 64 # image width to perform center crop
+# training network parameters
+network:
+  backbone: vit_tiny # backbone network
+  head_bottleneck_dim: 256 
+  head_hidden_dim: 2048
+  head_nlayers: 3
+  head_norm_last_layer: true
+  head_output_dim: 65536
+  head_use_bn: false
+  patch_size: 16
+optimizer:
+  init_lr: 0.0005
+  init_wd: 0.04
+  final_lr: 0.000006
+  final_wd: 0.4
+  momentum_teacher: 0.9995
+  optimizer: AdamW
+  scheduler_warmup_epochs: 10
+  teacher_temp: 0.04
+  warmup_teacher_temp: 0.04
+  warmup_teacher_temp_epochs: 0
+# restart training from checkpoint file ckpt
+restore:
+  ckpt_path: null # path/to/ckpt
+  restore: false # if true, restart from provided ckpt
+# keyword args for the ssl per data augmentation
+ssl augmentation kwargs: 
+  center_crop: 64
+  global_crop_scale_range: (0.4, 1)
+  global_crop_size: 64
+  local_crop_scale_range: (0.05, 0.4)
+  local_crop_size: 28
+  num_local_crops: 8
+# training parameters
+train args:
+  batch_size: 128
+  center_crop: 64
+  num_epochs: 5
+  num_local_crops: 8
