@@ -289,3 +289,22 @@ def test_model(
     print(t)
 
     return output, y_true, acc, auc
+
+def plot_cm_roc(y_score, y):
+    y_score = np.array(y_score)
+    y = np.array(y)
+
+    fpr, tpr, _ = roc_curve(y, y_score)
+    roc_auc = auc(fpr, tpr)
+    
+    fig, ax = plt.subplots(1, 2, figsize=(15, 6))
+    
+    cm = confusion_matrix(y, y_score.ravel() > 0)
+    ConfusionMatrixDisplay(cm).plot(ax=ax[0])
+    ax[0].set_title('Confusion Matrix')
+    
+    RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc, estimator_name=f'Class Lenses').plot(ax=ax[1])
+    
+    ax[1].set_title('ROC AUC Curves')
+    plt.tight_layout()
+    plt.show()
