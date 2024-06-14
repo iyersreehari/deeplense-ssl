@@ -1,7 +1,8 @@
 from PIL import Image
 import numpy as np
 import torchvision.transforms as Transforms
-from .utils import gaussian_blur, solarize, random_color_jitter
+from .utils import gaussian_blur, solarize, random_color_jitter, randomrotation, MinMaxScaling
+import random
 from typing import Tuple, Union, List
 
 class BaseAugmentationDINO:
@@ -67,21 +68,28 @@ def build_transforms(
             solarize_probability: float = 0.,
             random_rotation: bool = True,
             rotation_degree: Union[float, Tuple[float, float]] = (0., 0.),
+            rotation_probability: float = 0.,
             normalize: bool = True,
             mean: Union[float, Tuple[float, ]] = 0.,
             std: Union[float, Tuple[float, ]] = 0.,
+            to_tensor: bool = False
         ):
     transforms = []
     if np_input:
         transforms.append(Transforms.ToPILImage())
+    if to_tensor:
+        transforms.append(Transforms.ToTensor())
+    
     if center_crop > 0:
         transforms.append(Transforms.CenterCrop(center_crop))
-   
+    transforms.append(MinMaxScaling())
     transforms.extend([
             Transforms.RandomResizedCrop(crop_size,
                                  scale=scale_range,
-                                 interpolation=Image.BICUBIC),
-            Transforms.RandomHorizontalFlip(p=horizontal_flip_probability)
+                                 interpolation=Image.BICUBIC,
+                                 antialias=True),
+            Transforms.RandomHorizontalFlip(p=horizontal_flip_probability),
+            Transforms.RandomVerticalFlip(p=horizontal_flip_probability)
     ])
     if color_jitter:
         transforms.append(
@@ -109,12 +117,11 @@ def build_transforms(
         )
     if random_rotation:
         transforms.append(
-            Transforms.RandomRotation(degrees = rotation_degree,\
-                                      interpolation=Image.BICUBIC)
+            randomrotation(p=rotation_probability, rotation_degree=rotation_degree)
         )
-    transforms.append(Transforms.ToTensor())
     if normalize:
         transforms.append(Transforms.Normalize(mean, std))
+    
                         
     return Transforms.Compose(transforms)
 
@@ -123,6 +130,8 @@ def build_transforms(
 class AugmentationDINO(BaseAugmentationDINO):
     '''   
     implements the standard DINO augmentations
+    contains augmentations that doesn't affect
+    channel information
     
     params:
         global_crop_scale_range: tuple(float, float)
@@ -164,7 +173,7 @@ class AugmentationDINO(BaseAugmentationDINO):
         assert dataset_mean is not None
         assert dataset_std is not None
         self.global_1 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -172,11 +181,11 @@ class AugmentationDINO(BaseAugmentationDINO):
                     color_jitter = True,
                     brightness_jitter = kwargs.get('brightness_jitter', 0.4),
                     contrast_jitter = kwargs.get('contrast_jitter', 0.4),
-                    saturation_jitter = kwargs.get('saturation_jitter', 0.2),
-                    hue_jitter = kwargs.get('hue_jitter', 0.1),
+                    saturation_jitter = kwargs.get('saturation_jitter', 0.0),
+                    hue_jitter = kwargs.get('hue_jitter', 0.0),
                     color_jitter_probability = kwargs.get('color_jitter_probability', 0.1),
-                    random_grayscale = True,
-                    grayscale_probability = kwargs.get('grayscale_probability', 0.2),
+                    random_grayscale = False,
+                    # grayscale_probability = kwargs.get('grayscale_probability', 0.2),
                     random_gaussian_blur = True,
                     gaussian_blur_sigma = kwargs.get('gaussian_blur_sigma', (0.1, 2.0)),
                     gaussian_blur_probability = kwargs.get('gaussian_blur_probability_global_1', 1.0),
@@ -188,7 +197,7 @@ class AugmentationDINO(BaseAugmentationDINO):
                 )
         
         self.global_2 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -196,16 +205,16 @@ class AugmentationDINO(BaseAugmentationDINO):
                     color_jitter = True,
                     brightness_jitter = kwargs.get('brightness_jitter', 0.4),
                     contrast_jitter = kwargs.get('contrast_jitter', 0.4),
-                    saturation_jitter = kwargs.get('saturation_jitter', 0.2),
-                    hue_jitter  = kwargs.get('hue_jitter', 0.1),
+                    saturation_jitter = kwargs.get('saturation_jitter', 0.0),
+                    hue_jitter  = kwargs.get('hue_jitter', 0.0),
                     color_jitter_probability = kwargs.get('color_jitter_probability', 0.1),
-                    random_grayscale = True,
-                    grayscale_probability = kwargs.get('grayscale_probability', 0.2),
+                    random_grayscale = False,
+                    # grayscale_probability = kwargs.get('grayscale_probability', 0.2),
                     random_gaussian_blur = True,
                     gaussian_blur_sigma = kwargs.get('gaussian_blur_sigma', (0.1, 2.0)),
                     gaussian_blur_probability = kwargs.get('gaussian_blur_probability_global_2', 0.1),
-                    random_solarize = True,
-                    solarize_probability = kwargs.get('solarize_probability', 0.2),
+                    random_solarize = False,
+                    # solarize_probability = kwargs.get('solarize_probability', 0.2),
                     random_rotation = False,
                     normalize = True,
                     mean = dataset_mean,
@@ -213,7 +222,7 @@ class AugmentationDINO(BaseAugmentationDINO):
                 )
 
         self.local = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     crop_size = local_crop_size,
                     center_crop = center_crop,
                     scale_range = local_crop_scale_range,
@@ -221,11 +230,11 @@ class AugmentationDINO(BaseAugmentationDINO):
                     color_jitter = True,
                     brightness_jitter = kwargs.get('brightness_jitter', 0.4),
                     contrast_jitter = kwargs.get('contrast_jitter', 0.4),
-                    saturation_jitter = kwargs.get('saturation_jitter', 0.2),
-                    hue_jitter = kwargs.get('hue_jitter', 0.1),
+                    saturation_jitter = kwargs.get('saturation_jitter', 0.0),
+                    hue_jitter = kwargs.get('hue_jitter', 0.0),
                     color_jitter_probability = kwargs.get('color_jitter_probability', 0.1),
-                    random_grayscale = True,
-                    grayscale_probability = kwargs.get('grayscale_probability', 0.2),
+                    random_grayscale = False,
+                    # grayscale_probability = kwargs.get('grayscale_probability', 0.2),
                     random_gaussian_blur = True,
                     gaussian_blur_sigma = kwargs.get('gaussian_blur_sigma', (0.1, 2.0)),
                     gaussian_blur_probability = kwargs.get('gaussian_blur_probability_local', 0.5),
@@ -243,6 +252,7 @@ class AugmentationDINO(BaseAugmentationDINO):
 class AugmentationDINOSingleChannel(BaseAugmentationDINO):
     '''   
     implements the standard DINO augmentations
+    
     
     params:
         global_crop_scale_range: tuple(float, float)
@@ -285,7 +295,7 @@ class AugmentationDINOSingleChannel(BaseAugmentationDINO):
         assert dataset_std is not None
 
         self.global_1 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -293,22 +303,25 @@ class AugmentationDINOSingleChannel(BaseAugmentationDINO):
                     color_jitter = True,
                     brightness_jitter = kwargs.get('brightness_jitter', 0.4),
                     contrast_jitter = kwargs.get('contrast_jitter', 0.4),
-                    saturation_jitter = kwargs.get('saturation_jitter', 0.2),
-                    hue_jitter = kwargs.get('hue_jitter', 0.1),
+                    saturation_jitter = kwargs.get('saturation_jitter', 0.0),
+                    hue_jitter = kwargs.get('hue_jitter', 0.0),
                     color_jitter_probability = kwargs.get('color_jitter_probability', 0.1),
                     random_grayscale = False,
+                    # grayscale_probability = kwargs.get('grayscale_probability', 0.2),
                     random_gaussian_blur = True,
                     gaussian_blur_sigma = kwargs.get('gaussian_blur_sigma', (0.1, 2.0)),
                     gaussian_blur_probability = kwargs.get('gaussian_blur_probability_global_1', 1.0),
                     random_solarize = False,
-                    random_rotation = False,
+                    random_rotation = True,
+                    rotation_degree = (kwargs.get('rotation_degree', (-180., 180.))),
+                    rotation_probability = (kwargs.get('rotation_probability', (0.1))),
                     normalize = True,
                     mean = dataset_mean,
                     std = dataset_std,
                 )
         
         self.global_2 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -316,23 +329,25 @@ class AugmentationDINOSingleChannel(BaseAugmentationDINO):
                     color_jitter = True,
                     brightness_jitter = kwargs.get('brightness_jitter', 0.4),
                     contrast_jitter = kwargs.get('contrast_jitter', 0.4),
-                    saturation_jitter = kwargs.get('saturation_jitter', 0.2),
-                    hue_jitter = kwargs.get('hue_jitter', 0.1),
+                    saturation_jitter = kwargs.get('saturation_jitter', 0.0),
+                    hue_jitter  = kwargs.get('hue_jitter', 0.0),
                     color_jitter_probability = kwargs.get('color_jitter_probability', 0.1),
                     random_grayscale = False,
+                    # grayscale_probability = kwargs.get('grayscale_probability', 0.2),
                     random_gaussian_blur = True,
                     gaussian_blur_sigma = kwargs.get('gaussian_blur_sigma', (0.1, 2.0)),
                     gaussian_blur_probability = kwargs.get('gaussian_blur_probability_global_2', 0.1),
-                    random_solarize = True,
-                    solarize_probability = kwargs.get('solarize_probability', 0.2),
-                    random_rotation = False,
+                    random_solarize = False,
+                    random_rotation = True,
+                    rotation_degree = (kwargs.get('rotation_degree', (-180., 180.))),
+                    rotation_probability = (kwargs.get('rotation_probability', (0.1))),
                     normalize = True,
                     mean = dataset_mean,
                     std = dataset_std,
                 )
 
         self.local = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     crop_size = local_crop_size,
                     center_crop = center_crop,
                     scale_range = local_crop_scale_range,
@@ -340,15 +355,18 @@ class AugmentationDINOSingleChannel(BaseAugmentationDINO):
                     color_jitter = True,
                     brightness_jitter = kwargs.get('brightness_jitter', 0.4),
                     contrast_jitter = kwargs.get('contrast_jitter', 0.4),
-                    saturation_jitter = kwargs.get('saturation_jitter', 0.2),
-                    hue_jitter = kwargs.get('hue_jitter', 0.1),
+                    saturation_jitter = kwargs.get('saturation_jitter', 0.0),
+                    hue_jitter = kwargs.get('hue_jitter', 0.0),
                     color_jitter_probability = kwargs.get('color_jitter_probability', 0.1),
                     random_grayscale = False,
+                    # grayscale_probability = kwargs.get('grayscale_probability', 0.2),
                     random_gaussian_blur = True,
                     gaussian_blur_sigma = kwargs.get('gaussian_blur_sigma', (0.1, 2.0)),
                     gaussian_blur_probability = kwargs.get('gaussian_blur_probability_local', 0.5),
                     random_solarize = False,
-                    random_rotation = False,
+                    random_rotation = True,
+                    rotation_degree = (kwargs.get('rotation_degree', (-180., 180.))),
+                    rotation_probability = (kwargs.get('rotation_probability', (0.5))),
                     normalize = True,
                     mean = dataset_mean,
                     std = dataset_std,
@@ -406,7 +424,7 @@ class AugmentationDINOexpt1(BaseAugmentationDINO):
         assert dataset_std is not None
 
         self.global_1 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -431,7 +449,7 @@ class AugmentationDINOexpt1(BaseAugmentationDINO):
                 )
         
         self.global_2 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -457,7 +475,7 @@ class AugmentationDINOexpt1(BaseAugmentationDINO):
                 )
 
         self.local = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = local_crop_size,
                     scale_range = local_crop_scale_range,
@@ -488,8 +506,7 @@ class AugmentationDINOexpt1(BaseAugmentationDINO):
 class AugmentationDINOexpt2(BaseAugmentationDINO):
     '''   
     implements the standard DINO augmentations
-    contains augmentations that doesn't affect
-    channel information
+    experiment
     
     params:
         global_crop_scale_range: tuple(float, float)
@@ -532,7 +549,7 @@ class AugmentationDINOexpt2(BaseAugmentationDINO):
         assert dataset_std is not None
 
         self.global_1 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -550,7 +567,7 @@ class AugmentationDINOexpt2(BaseAugmentationDINO):
                     std = dataset_std,
                 )
         self.global_2 = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
@@ -569,7 +586,7 @@ class AugmentationDINOexpt2(BaseAugmentationDINO):
                     std = dataset_std,
                 )
         self.local = build_transforms(
-                    np_input = True,
+                    np_input = False,
                     center_crop = center_crop,
                     crop_size = global_crop_size,
                     scale_range = global_crop_scale_range,
