@@ -22,6 +22,7 @@ class TrainDINO(TrainSSL):
             num_classes: int,
             train_val_test_split: Tuple[float, ],
             batch_size: int,
+            # physical_batch_size: int,
             embed_dim: int,
             num_local_crops: int,
             scheduler_warmup_epochs: int,
@@ -48,6 +49,7 @@ class TrainDINO(TrainSSL):
             device: str = "cuda",
             use_mixed_precision: bool = "True",
             freeze_last_layer: int = 1,
+            knn_neighbours: int = 5,
             **kwargs,
             
         ):
@@ -63,11 +65,13 @@ class TrainDINO(TrainSSL):
             num_classes=num_classes,
             train_val_test_split = train_val_test_split,
             batch_size=batch_size,
+            # physical_batch_size=physical_batch_size,
             num_epochs = num_epochs,
             log_freq = log_freq,
             device=device,
             logger=logger,
             use_mixed_precision=use_mixed_precision,
+            knn_neighbours = knn_neighbours,
             **kwargs
         )
         self.logger.info("Initializing DINO training")
@@ -141,7 +145,7 @@ class TrainDINO(TrainSSL):
 
         # scheduler
         self.lr_schedule = cosine_scheduler(
-            init_val = lr * batch_size / 256., 
+            init_val = lr, 
             final_val = final_lr,
             epochs = self.epochs, 
             steps_per_epoch = self.steps_per_epoch,

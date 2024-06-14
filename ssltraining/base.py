@@ -1,3 +1,5 @@
+# reference for gradient accumulation: https://kozodoi.me/blog/20210219/gradient-accumulation
+
 import os
 import time
 import numpy as np
@@ -26,11 +28,13 @@ class TrainSSL:
             num_classes: int,
             train_val_test_split: List[float, ],
             batch_size: int,
+            # physical_batch_size: int,
             num_epochs: int,
             log_freq: int,
             device: str,
             logger,
             use_mixed_precision: bool,
+            knn_neighbours: int = 5,
             #clip_grad_magnitude: float,
             **kwargs,
         ):
@@ -53,7 +57,9 @@ class TrainSSL:
         self.num_classes = num_classes
         self.data_path = data_path
         self.batch_size = batch_size
-
+        # self.physical_batch_size = batch_size if physical_batch_size is None else physical_batch_size
+        # self.accumulate_grad_every = self.batch_size // self.physical_batch_size
+        self.knn_neighbours = knn_neighbours
         
         
 
@@ -103,35 +109,39 @@ class TrainSSL:
 
         self.dataloader = DataLoader(
             dataset,
+            # batch_size = self.physical_batch_size,
             batch_size = self.batch_size,
             num_workers = kwargs.get('num_workers', 4),
             pin_memory = kwargs.get('pin_memory', True),
-            drop_last = kwargs.get('drop_last', True),
+            drop_last = kwargs.get('drop_last', False),
         )
         
         self.eval_train_dataloader = DataLoader(
             dataset=train_dataset,
+            # batch_size = self.physical_batch_size,
             batch_size = self.batch_size,
             num_workers = kwargs.get('num_workers', 4),
             pin_memory = kwargs.get('pin_memory', True),
-            drop_last = kwargs.get('drop_last', True),
+            drop_last = kwargs.get('drop_last', False),
         )
         self.eval_val_dataloader = None
         if val_size!=0:
             self.eval_val_dataloader = DataLoader(
                 dataset=val_dataset,
+                # batch_size = self.physical_batch_size,
                 batch_size = self.batch_size,
                 num_workers = kwargs.get('num_workers', 4),
                 pin_memory = kwargs.get('pin_memory', True),
-                drop_last = kwargs.get('drop_last', True),
+                drop_last = kwargs.get('drop_last', False),
             ) 
             
         self.eval_test_dataloader = DataLoader(
             dataset=test_dataset,
+            # batch_size = self.physical_batch_size,
             batch_size = self.batch_size,
             num_workers = kwargs.get('num_workers', 4),
             pin_memory = kwargs.get('pin_memory', True),
-            drop_last = kwargs.get('drop_last', True),
+            drop_last = kwargs.get('drop_last', False),
         )
         self.logger.info(f"Loaded Dataset from {self.data_path}. Dataset contains {len(dataset)} images")
 
@@ -148,6 +158,9 @@ class TrainSSL:
             "loss_epochwise": [],
             "knn_top1": [],
             "knn_top5": [],
+            "train_indices": train_indices,
+            "val_indices": val_indices, 
+            "test_indices": test_indices,
         }
         self.state = None
 
@@ -220,42 +233,56 @@ class TrainSSL:
         raise NotImplementedError
         
     def train_one_epoch(self):
+        self.optimizer.zero_grad()
         losses = []
+        cur_step = self.state["current_epoch"]*self.steps_per_epoch 
+        #loss_ = 0
         for idx, (img, _) in enumerate(self.dataloader):
-
-            cur_step = self.state["current_epoch"]*self.steps_per_epoch + idx
-            lr, wd = self.get_lr_and_wd(cur_step)
-            
-            for param_idx, param_group in enumerate(self.optimizer.param_groups):
-                param_group["lr"] = lr
-                if param_idx == 0:  
-                    param_group["weight_decay"] = wd
             img = [im.to(self.device, non_blocking=True) for im in img]
             
-            self.optimizer.zero_grad()
-
+            # with torch.cuda.amp.autocast(self.fp16_scaler is not None):
+            #     teacher_output = self.forward_teacher(img)  
+            #     student_output = self.forward_student(img)
+            #     loss = self.criterion(student_output, teacher_output, self.state["current_epoch"]) / float(self.accumulate_grad_every)
+            #     loss_ += loss.item()
             with torch.cuda.amp.autocast(self.fp16_scaler is not None):
                 teacher_output = self.forward_teacher(img)  
                 student_output = self.forward_student(img)
-                loss = self.criterion(student_output, teacher_output, self.state["current_epoch"])
+                loss = self.criterion(student_output, teacher_output, self.state["current_epoch"]) 
+                losses.append(loss.item())
     
             if np.isinf(loss.item()):
                 self.logger.error(f"Loss is Infinite. Training stopped")
                 sys.exit(1)
 
+            # if self.fp16_scaler is None:
+            #     loss.backward()
+            # else:
+            #     self.fp16_scaler.scale(loss).backward()
+
+            # grad accumulation https://kozodoi.me/blog/20210219/gradient-accumulation
+            #if ((idx+1)%self.accumulate_grad_every == 0) or (idx+1 == len(self.dataloader)):
+     
+            lr, wd = self.get_lr_and_wd(cur_step)
+            for param_idx, param_group in enumerate(self.optimizer.param_groups):
+                param_group["lr"] = lr
+                if param_idx == 0:  
+                    param_group["weight_decay"] = wd
             if self.fp16_scaler is None:
                 loss.backward()
                 self.process_grads_before_step(self.state["current_epoch"])
                 self.optimizer.step()
-                
             else:
                 self.fp16_scaler.scale(loss).backward()
                 self.process_grads_before_step(self.state["current_epoch"])
                 self.fp16_scaler.step(self.optimizer)
                 self.fp16_scaler.update()
-
+            self.optimizer.zero_grad()
             self.update_teacher(cur_step)
-            losses.append(loss.item())
+            cur_step += 1
+            # losses.append(loss_)
+            # losses.append(loss.item())
+            # loss_ = 0
             
         self.history["loss_stepwise"].extend(losses)
         self.history["loss_epochwise"].append(np.mean(losses))
@@ -265,27 +292,39 @@ class TrainSSL:
         if self.state is None:
             self._init_state()
         for epoch in range(self.state["current_epoch"], self.epochs):
+            self.student.train() 
+            self.teacher.train()
             start_time = time.time()
             loss = self.train_one_epoch()
             total_time = time.time() - start_time
             self.logger.info(f"Epoch: {epoch} finished in {datetime.timedelta(seconds=int(total_time))} seconds,")
             self.logger.info(f"\tLoss: {loss:.6e}")
             knn_top1, knn_top5 = None, None
-            if self.state["current_epoch"]%self.log_freq == 0 or self.state["current_epoch"] == self.epochs:
+            if self.state["current_epoch"]%self.log_freq == 0 or (self.state["current_epoch"] + 1) == self.epochs:
+                self.student.eval() 
+                self.teacher.eval()
                 knn_top1, knn_top5 = self.compute_knn_accuracy()
                 #self.logger.info(f"\tKNN: {knn_accuracy:.6e}")
             self.history["knn_top1"].append(knn_top1)
             self.history["knn_top5"].append(knn_top5)
             self.save_checkpoint(self.ckpt_file)
-            if self.state["current_epoch"]%self.log_freq == 0 or self.state["current_epoch"] == self.epochs:
+            if self.state["current_epoch"]%self.log_freq == 0 or (self.state["current_epoch"] + 1) == self.epochs:
                 self.save_checkpoint(os.path.join(self.expt_path, f"epoch_{self.state['current_epoch']}_accknn_{knn_top1:.6f}_checkpoint.pth"))
             self.state["current_epoch"] += 1
+        self.student.eval() 
+        self.teacher.eval()
+        knn_top1, knn_top5 = self.compute_knn_accuracy(mode = "Test")
+        self.history["Test"] = {
+            "knn_top1": knn_top1,
+            "knn_top5": knn_top5
+        }
+        self.save_checkpoint(self.ckpt_file)
 
     @torch.no_grad()
     def compute_knn_accuracy(
             self, 
             mode: str = None,
-            knn_k: int=20,
+            knn_k: int= None,
         ):
         self.logger.info("Testing accuracy of learned features using KNN")
         test_dataloader = None
@@ -294,6 +333,8 @@ class TrainSSL:
                 mode = "Val"
             else:
                 mode = "Test"
+        if knn_k is None:
+            knn_k = self.knn_neighbours
         if mode == "Val":
             test_dataloader=self.eval_val_dataloader
         elif mode == "Test":
