@@ -27,16 +27,15 @@ network:
   head_hidden_dim: 2048
   head_nlayers: 3
   head_norm_last_layer: true
-  head_output_dim: 16384 # 2^12 
+  head_output_dim: 16384 
   head_use_bn: false
   patch_size: 8
 optimizer:
 # small lr, cosine schedule lr, low init wd are good
-# expt 5 converged quickly, so trying out a larger lr to see if it will learn more
-  init_lr: 0.00001 # anything more than this is unstable
-  init_wd: 0.00004 # low momentum helps, zero doesn't give better results
-  final_lr: 0.000001 # keeping this low helps, too low makes learning slow
-  final_wd: 0.0004 # high momentum at the end regularizes
+  init_lr: 0.00001 
+  init_wd: 0.00004
+  final_lr: 0.000001 
+  final_wd: 0.0004 
   momentum_teacher: 0.9996
   optimizer: AdamW
   scheduler_warmup_epochs: 10 
