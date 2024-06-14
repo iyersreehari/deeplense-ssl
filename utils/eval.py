@@ -10,7 +10,9 @@ from augmentations.utils import MinMaxScaling
 from sklearn.metrics import confusion_matrix, accuracy_score, roc_auc_score, precision_recall_fscore_support
 from typing import List
 from prettytable import PrettyTable
+from sklearn.metrics import confusion_matrix, roc_curve, auc, RocCurveDisplay, ConfusionMatrixDisplay
 import copy
+import matplotlib.pyplot as plt
 
 def npy_loader(path):
     sample = torch.from_numpy(np.load(path))
