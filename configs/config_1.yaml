@@ -7,9 +7,9 @@
 experiment:
   seed: 12
   device: cuda 
-  expt_name: standard_dino # experiment name
-  log_freq: 5 # knn accuracy is computed every `log_freq` epochs, additionally the trained model is also saved
-  output_dir: ../working/standard_dino # output results to this folder - files: logs.txt, {experiment_name}_models
+  expt_name: expt13 # experiment name
+  log_freq: 50 # knn accuracy is computed every `log_freq` epochs, additionally the trained model is also saved
+  output_dir: ../working/0606/expt13 # output results to this folder - files: logs.txt, {experiment_name}_models
   ssl_training: dino # training strategy to use
   use_mixed_precision: true # if true uses fp16 for training, improves training speed
 # input image parameters
@@ -17,8 +17,8 @@ input:
   channels: 3 # num channels in input image
   data path: ../input/real_lenses_dataset # path/to/dataset
   image size: 
-  - 96 # image height to perform center crop
-  - 96 # image width to perform center crop
+  - 64 # image height to perform center crop
+  - 64 # image width to perform center crop
   num classes: 2
 # training network parameters
 network:
@@ -27,42 +27,45 @@ network:
   head_hidden_dim: 2048
   head_nlayers: 3
   head_norm_last_layer: true
-  head_output_dim: 65536
+  head_output_dim: 16384 # 2^12 
   head_use_bn: false
   patch_size: 16
 optimizer:
-  init_lr: 0.0005
-  init_wd: 0.04
-  final_lr: 0.000001
-  final_wd: 0.4
+# small lr, cosine schedule lr, low init wd are good
+# expt 5 converged quickly, so trying out a larger lr to see if it will learn more
+  init_lr: 0.0001 # anything more than this is unstable
+  init_wd: 0.00004 # low momentum helps, zero doesn't give better results
+  final_lr: 0.00001 # keeping this low helps, too low makes learning slow
+  final_wd: 0.0004 # high momentum at the end regularizes
   momentum_teacher: 0.9996
   optimizer: AdamW
-  scheduler_warmup_epochs: 0 # set to 10 if epochs > 10
+  scheduler_warmup_epochs: 10 
   teacher_temp: 0.04
   warmup_teacher_temp: 0.04
   warmup_teacher_temp_epochs: 0
-  clip_grad_magnitude: 3.
+  clip_grad_magnitude: 0. # check
 # restart training from checkpoint file ckpt
 restore:
   ckpt_path: null # path/to/ckpt
   restore: false # if true, restart from provided ckpt
 # keyword args for the ssl per data augmentation
 ssl augmentation kwargs: 
-  augmentation: AugmentationDINO
-  center_crop: 96
+  augmentation: AugmentationDINOSingleChannel
+  center_crop: 64
   global_crop_scale_range: 
   - 0.4
   - 1.0
-  global_crop_size: 96
+  global_crop_size: 64
   local_crop_scale_range: 
   - 0.05
   - 0.4
   local_crop_size: 40
-  num_local_crops: 8
+  num_local_crops: 12
 # training parameters
 train args:
-  batch_size: 128
-  num_epochs: 2
+  knn_neighbours: 20
+  batch_size: 64
+  num_epochs: 1000
   freeze_last_layer: 0
   train_val_test_split: 
   - 0.7
